@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { supabase, fmtBps, fmtMs, rttColor } from "../../lib/supabase"
+import { supabase, fmtBps, fmtMs, rttColor, healthScore } from "../../lib/supabase"
 
 const PAGE_SIZE = 10
 
@@ -38,7 +38,8 @@ export default function ClientsPage() {
         const m = latest[c.circuit_id]
         const retxRate = m && m.tcp_down > 0 ? (m.retx_down / m.tcp_down) * 100 : null
         const usage = m && c.download_max_mbps ? (m.rx_bps / (c.download_max_mbps * 1e6)) * 100 : null
-        return { ...c, m, retxRate, usage, active: !!m }
+        const health = m ? healthScore({ rtt: m.rtt_ms, retxRate, usage }) : null
+        return { ...c, m, retxRate, usage, health, active: !!m }
       })
       setRows(merged)
       setStamp(new Date())
@@ -62,6 +63,7 @@ export default function ClientsPage() {
       if (sortKey === "rtt")   return (b.m?.rtt_ms || 0) - (a.m?.rtt_ms || 0)
       if (sortKey === "retx")  return (b.retxRate || 0) - (a.retxRate || 0)
       if (sortKey === "usage") return (b.usage || 0) - (a.usage || 0)
+      if (sortKey === "salud") return (b.health?.rank || 0) - (a.health?.rank || 0)
       return a.circuit_name?.localeCompare(b.circuit_name)
     })
 
@@ -88,7 +90,7 @@ export default function ClientsPage() {
           className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-72 focus:outline-none focus:border-blue-500" />
         <div className="flex gap-1 text-xs items-center flex-wrap">
           <span className="text-gray-500 mr-1">Ordenar (mayor→menor):</span>
-          {[["rx","Bajada"],["tx","Subida"],["rtt","RTT"],["retx","Retransmit"],["usage","% Plan"],["name","Nombre"]].map(([k,l]) => (
+          {[["salud","Salud"],["rx","Bajada"],["tx","Subida"],["rtt","RTT"],["retx","Retransmit"],["usage","% Plan"],["name","Nombre"]].map(([k,l]) => (
             <button key={k} onClick={() => { setSortKey(k); setPage(0) }}
               className={`px-2 py-1 rounded ${sortKey===k ? "bg-blue-600" : "bg-gray-800 hover:bg-gray-700"}`}>{l}</button>
           ))}
@@ -102,6 +104,7 @@ export default function ClientsPage() {
           <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b border-gray-800 text-gray-400 text-xs uppercase">
+                <th className="text-left px-4 py-3">Salud</th>
                 <th className="text-left px-4 py-3">Cliente</th>
                 <th className="text-left px-4 py-3">IP</th>
                 <th className="text-right px-4 py-3">Bajada</th>
@@ -115,6 +118,17 @@ export default function ClientsPage() {
             <tbody>
               {pageRows.map(c => (
                 <tr key={c.circuit_id} className="border-b border-gray-800 hover:bg-gray-800 transition-colors">
+                  <td className="px-4 py-2.5">
+                    {c.health
+                      ? <span className="flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${c.health.dot}`} />
+                          <span className={`text-xs ${c.health.color}`}>{c.health.label}</span>
+                        </span>
+                      : <span className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-gray-600" />
+                          <span className="text-xs text-gray-600">Inactivo</span>
+                        </span>}
+                  </td>
                   <td className="px-4 py-2.5">
                     <Link href={`/clients/${c.circuit_id}`} className="font-medium text-blue-300 hover:text-blue-200 hover:underline">
                       {c.circuit_name}

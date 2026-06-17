@@ -10,6 +10,7 @@ export default function RootLayout({ children }) {
           <span className="font-bold text-blue-400 text-lg">LibreQoS Monitor</span>
           <a href="/"        className="text-sm text-gray-300 hover:text-white">Red Global</a>
           <a href="/nodes"   className="text-sm text-gray-300 hover:text-white">Nodos</a>
+          <a href="/towers"  className="text-sm text-gray-300 hover:text-white">Torres</a>
           <a href="/clients" className="text-sm text-gray-300 hover:text-white">Clientes</a>
         </nav>
         <main className="p-6">{children}</main>
