@@ -135,7 +135,13 @@ export default function ClientsPage() {
                     </Link>
                     <div className="text-xs text-gray-500">{c.device_name} · plan {c.download_max_mbps}/{c.upload_max_mbps}</div>
                   </td>
-                  <td className="px-4 py-2.5 text-gray-400 font-mono text-xs">{c.ipv4 || "—"}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs">
+                    {c.ipv4
+                      ? <a href={`http://${c.ipv4}`} target="_blank" rel="noopener noreferrer"
+                          title="Abrir configuración de la antena"
+                          className="text-gray-400 hover:text-blue-300 hover:underline">{c.ipv4} ↗</a>
+                      : <span className="text-gray-600">—</span>}
+                  </td>
                   <td className="px-4 py-2.5 text-right text-blue-400">{c.active ? fmtBps(c.m.rx_bps) : <span className="text-gray-600">—</span>}</td>
                   <td className="px-4 py-2.5 text-right text-green-400">{c.active ? fmtBps(c.m.tx_bps) : <span className="text-gray-600">—</span>}</td>
                   <td className="px-4 py-2.5 text-right">
