@@ -1,150 +1,152 @@
 "use client"
 import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
+import Link from "next/link"
+import { supabase, fmtBps, fmtMs, rttColor } from "../../lib/supabase"
 
 export default function ClientsPage() {
-  const [clients, setClients]   = useState([])
-  const [nodes, setNodes]       = useState({})
-  const [filter, setFilter]     = useState("")
-  const [loading, setLoading]   = useState(true)
+  const [rows, setRows]       = useState([])
+  const [filter, setFilter]   = useState("")
+  const [sortKey, setSortKey] = useState("traffic")
+  const [loading, setLoading] = useState(true)
+  const [stamp, setStamp]     = useState(null)
 
   useEffect(() => {
     async function load() {
-      // Cargar catálogo de clientes
-      const { data: clientData } = await supabase
+      // Catálogo completo de clientes
+      const { data: clients } = await supabase
         .from("clients")
-        .select("*")
-        .order("circuit_name")
+        .select("circuit_id,circuit_name,device_name,ipv4,parent_node,download_max_mbps,upload_max_mbps")
 
-      // Últimas métricas por nodo (para mostrar estado del padre)
+      // Últimas métricas en vivo por circuito (5 min)
       const since = new Date(Date.now() - 5 * 60000).toISOString()
-      const { data: nodeData } = await supabase
-        .from("node_metrics")
-        .select("node_name,rx_bps,tx_bps,rtt_avg,rtt_p95,retx_rate_rx,drops_rx,ts")
+      const { data: metrics } = await supabase
+        .from("circuit_metrics")
+        .select("circuit_id,rx_bps,tx_bps,rtt_ms,retx_down,retx_up,tcp_down,plan_down_mbps,plan_up_mbps,ts")
         .gte("ts", since)
         .order("ts", { ascending: false })
 
-      // Dedup nodos: el más reciente por nombre
-      const nodeMap = {}
-      for (const n of nodeData || []) {
-        if (!nodeMap[n.node_name]) nodeMap[n.node_name] = n
+      // Última métrica por circuito
+      const latest = {}
+      for (const m of metrics || []) {
+        if (!latest[m.circuit_id]) latest[m.circuit_id] = m
       }
-      setClients(clientData || [])
-      setNodes(nodeMap)
+
+      const merged = (clients || []).map(c => {
+        const m = latest[c.circuit_id]
+        const retxRate = m && m.tcp_down > 0 ? (m.retx_down / m.tcp_down) * 100 : null
+        const usage = m && c.download_max_mbps ? (m.rx_bps / (c.download_max_mbps * 1e6)) * 100 : null
+        return { ...c, m, retxRate, usage, active: !!m }
+      })
+      setRows(merged)
+      setStamp(new Date())
       setLoading(false)
     }
     load()
-    const t = setInterval(load, 60000)
+    const t = setInterval(load, 30000)
     return () => clearInterval(t)
   }, [])
 
-  const filtered = clients.filter(c =>
-    c.circuit_name.toLowerCase().includes(filter.toLowerCase()) ||
-    (c.ipv4 || "").includes(filter) ||
-    (c.device_name || "").toLowerCase().includes(filter.toLowerCase()) ||
-    (c.parent_node || "").toLowerCase().includes(filter.toLowerCase())
-  )
-
-  function planUsagePct(client, nodeMetrics) {
-    if (!nodeMetrics || !client.download_max_mbps) return null
-    return Math.min(100, (nodeMetrics.rx_bps / (client.download_max_mbps * 1e6)) * 100)
-  }
-
-  function planBar(pct) {
-    if (pct == null) return null
-    const color = pct < 70 ? "bg-green-500" : pct < 90 ? "bg-yellow-500" : "bg-red-500"
-    return (
-      <div className="w-24 bg-gray-700 rounded-full h-1.5">
-        <div className={`${color} h-1.5 rounded-full`} style={{ width: `${pct}%` }} />
-      </div>
+  const filtered = rows
+    .filter(c =>
+      c.circuit_name?.toLowerCase().includes(filter.toLowerCase()) ||
+      (c.ipv4 || "").includes(filter) ||
+      (c.device_name || "").toLowerCase().includes(filter.toLowerCase()) ||
+      (c.parent_node || "").toLowerCase().includes(filter.toLowerCase())
     )
-  }
+    .sort((a, b) => {
+      if (sortKey === "traffic") return (b.m?.rx_bps || 0) - (a.m?.rx_bps || 0)
+      if (sortKey === "rtt")     return (b.m?.rtt_ms || 0) - (a.m?.rtt_ms || 0)
+      if (sortKey === "retx")    return (b.retxRate || 0) - (a.retxRate || 0)
+      if (sortKey === "usage")   return (b.usage || 0) - (a.usage || 0)
+      return a.circuit_name?.localeCompare(b.circuit_name)
+    })
+
+  const activos = rows.filter(r => r.active).length
 
   return (
     <div className="max-w-7xl mx-auto">
-      <h1 className="text-xl font-semibold mb-2">Suscriptores / Clientes</h1>
-      <p className="text-gray-500 text-sm mb-6">
-        {clients.length} circuitos registrados · El tráfico mostrado es del nodo padre compartido
-      </p>
+      <div className="flex items-center justify-between mb-2">
+        <h1 className="text-xl font-semibold">Suscriptores</h1>
+        <span className="text-sm text-gray-500">
+          <span className="text-green-400">{activos}</span> activos / {rows.length} totales
+        </span>
+      </div>
+      <p className="text-gray-500 text-sm mb-6">Consumo individual real en vivo · click en un cliente para su historial</p>
 
-      <div className="flex gap-3 mb-4">
-        <input type="text"
-          placeholder="Buscar por nombre, IP, nodo padre..."
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <input type="text" placeholder="Buscar nombre, IP, nodo..."
           value={filter} onChange={e => setFilter(e.target.value)}
-          className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-80 focus:outline-none focus:border-blue-500" />
-        <span className="text-gray-500 text-sm self-center">{filtered.length} clientes</span>
+          className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-72 focus:outline-none focus:border-blue-500" />
+        <div className="flex gap-1 text-xs items-center">
+          <span className="text-gray-500 mr-1">Ordenar:</span>
+          {[["traffic","Tráfico"],["usage","% Plan"],["rtt","Latencia"],["retx","Retransmit"],["name","Nombre"]].map(([k,l]) => (
+            <button key={k} onClick={() => setSortKey(k)}
+              className={`px-2 py-1 rounded ${sortKey===k ? "bg-blue-600" : "bg-gray-800 hover:bg-gray-700"}`}>{l}</button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
-        <div className="text-gray-500 text-center py-16">Cargando clientes...</div>
+        <div className="text-gray-500 text-center py-16">Cargando suscriptores...</div>
       ) : (
         <div className="bg-gray-900 rounded-lg border border-gray-800 overflow-x-auto">
           <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="border-b border-gray-800 text-gray-400 text-xs uppercase">
                 <th className="text-left px-4 py-3">Cliente</th>
-                <th className="text-left px-4 py-3">Dispositivo</th>
                 <th className="text-left px-4 py-3">IP</th>
-                <th className="text-left px-4 py-3">Nodo Padre</th>
-                <th className="text-right px-4 py-3">Plan ↓/↑ Mbps</th>
-                <th className="text-right px-4 py-3">Uso plan</th>
-                <th className="text-right px-4 py-3">RTT nodo</th>
-                <th className="text-right px-4 py-3">Retransmit%</th>
-                <th className="text-left px-4 py-3">Comentario</th>
+                <th className="text-right px-4 py-3">Bajada</th>
+                <th className="text-right px-4 py-3">Subida</th>
+                <th className="text-right px-4 py-3">% Plan</th>
+                <th className="text-right px-4 py-3">RTT</th>
+                <th className="text-right px-4 py-3">Retransmit</th>
+                <th className="text-left px-4 py-3">Nodo</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(c => {
-                const nm = nodes[c.parent_node]
-                const pct = planUsagePct(c, nm)
-                return (
-                  <tr key={c.circuit_id} className="border-b border-gray-800 hover:bg-gray-800 transition-colors">
-                    <td className="px-4 py-2.5">
-                      <div className="font-medium text-white">{c.circuit_name}</div>
-                      <div className="text-xs text-gray-500">{c.circuit_id}</div>
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-400 text-xs">{c.device_name || "—"}</td>
-                    <td className="px-4 py-2.5 text-blue-300 font-mono text-xs">{c.ipv4 || "—"}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-xs px-2 py-0.5 rounded ${nm ? "bg-green-900 text-green-300" : "bg-gray-800 text-gray-500"}`}>
-                        {c.parent_node || "—"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-gray-300">
-                      <span className="text-green-400">{c.download_max_mbps}</span>
-                      <span className="text-gray-600"> / </span>
-                      <span className="text-blue-400">{c.upload_max_mbps}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      {pct != null ? (
-                        <div className="flex items-center gap-2 justify-end">
-                          <span className="text-xs text-gray-400">{pct.toFixed(0)}%</span>
-                          {planBar(pct)}
-                        </div>
-                      ) : <span className="text-gray-600 text-xs">—</span>}
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-xs">
-                      {nm?.rtt_avg != null
-                        ? <span className={nm.rtt_avg < 20 ? "text-green-400" : nm.rtt_avg < 60 ? "text-yellow-400" : "text-red-400"}>
-                            {nm.rtt_avg.toFixed(1)} ms
-                          </span>
-                        : <span className="text-gray-600">—</span>}
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-xs">
-                      {nm?.retx_rate_rx != null
-                        ? <span className={nm.retx_rate_rx < 0.5 ? "text-green-400" : nm.retx_rate_rx < 1.5 ? "text-yellow-400" : "text-red-400"}>
-                            {nm.retx_rate_rx.toFixed(2)}%
-                          </span>
-                        : <span className="text-gray-600">—</span>}
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-500 text-xs max-w-xs truncate">{c.comment || ""}</td>
-                  </tr>
-                )
-              })}
+              {filtered.map(c => (
+                <tr key={c.circuit_id} className="border-b border-gray-800 hover:bg-gray-800 transition-colors">
+                  <td className="px-4 py-2.5">
+                    <Link href={`/clients/${c.circuit_id}`} className="font-medium text-blue-300 hover:text-blue-200 hover:underline">
+                      {c.circuit_name}
+                    </Link>
+                    <div className="text-xs text-gray-500">{c.device_name} · plan {c.download_max_mbps}/{c.upload_max_mbps}</div>
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-400 font-mono text-xs">{c.ipv4 || "—"}</td>
+                  <td className="px-4 py-2.5 text-right text-blue-400">{c.active ? fmtBps(c.m.rx_bps) : <span className="text-gray-600">—</span>}</td>
+                  <td className="px-4 py-2.5 text-right text-green-400">{c.active ? fmtBps(c.m.tx_bps) : <span className="text-gray-600">—</span>}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    {c.usage != null ? <UsageBadge pct={c.usage} /> : <span className="text-gray-600 text-xs">—</span>}
+                  </td>
+                  <td className={`px-4 py-2.5 text-right ${rttColor(c.m?.rtt_ms)}`}>{c.active ? fmtMs(c.m.rtt_ms) : "—"}</td>
+                  <td className="px-4 py-2.5 text-right text-xs">
+                    {c.retxRate != null
+                      ? <span className={c.retxRate < 0.5 ? "text-green-400" : c.retxRate < 1.5 ? "text-yellow-400" : "text-red-400"}>{c.retxRate.toFixed(2)}%</span>
+                      : <span className="text-gray-600">—</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-500 text-xs">{c.parent_node}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       )}
+      <p className="text-xs text-gray-600 mt-4 text-center">
+        {stamp && `Actualizado ${stamp.toLocaleTimeString("es")} · `}auto-refresh 30s
+      </p>
+    </div>
+  )
+}
+
+function UsageBadge({ pct }) {
+  const color = pct < 70 ? "text-green-400" : pct < 90 ? "text-yellow-400" : "text-red-400"
+  const bar   = pct < 70 ? "bg-green-500"   : pct < 90 ? "bg-yellow-500"   : "bg-red-500"
+  return (
+    <div className="flex items-center gap-2 justify-end">
+      <span className={`text-xs ${color}`}>{pct.toFixed(0)}%</span>
+      <div className="w-16 bg-gray-700 rounded-full h-1.5">
+        <div className={`${bar} h-1.5 rounded-full`} style={{ width: `${Math.min(100, pct)}%` }} />
+      </div>
     </div>
   )
 }
