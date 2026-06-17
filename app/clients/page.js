@@ -137,7 +137,7 @@ export default function ClientsPage() {
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs">
                     {c.ipv4
-                      ? <a href={`http://${c.ipv4}`} target="_blank" rel="noopener noreferrer"
+                      ? <a href={`https://${c.ipv4}`} target="_blank" rel="noopener noreferrer"
                           title="Abrir configuración de la antena"
                           className="text-gray-400 hover:text-blue-300 hover:underline">{c.ipv4} ↗</a>
                       : <span className="text-gray-600">—</span>}

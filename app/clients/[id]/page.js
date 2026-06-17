@@ -77,7 +77,7 @@ export default function ClientDetail() {
               <h1 className="text-2xl font-bold text-white">{client.circuit_name}</h1>
               <div className="text-sm text-gray-500 mt-1">
                 {client.device_name} · {client.ipv4
-                  ? <a href={`http://${client.ipv4}`} target="_blank" rel="noopener noreferrer"
+                  ? <a href={`https://${client.ipv4}`} target="_blank" rel="noopener noreferrer"
                       title="Abrir configuración de la antena"
                       className="font-mono text-gray-400 hover:text-blue-300 hover:underline">{client.ipv4} ↗</a>
                   : <span className="font-mono text-gray-600">—</span>} · Nodo: {client.parent_node}
