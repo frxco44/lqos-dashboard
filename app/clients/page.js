@@ -3,10 +3,13 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { supabase, fmtBps, fmtMs, rttColor } from "../../lib/supabase"
 
+const PAGE_SIZE = 10
+
 export default function ClientsPage() {
   const [rows, setRows]       = useState([])
   const [filter, setFilter]   = useState("")
-  const [sortKey, setSortKey] = useState("traffic")
+  const [sortKey, setSortKey] = useState("rx")
+  const [page, setPage]       = useState(0)
   const [loading, setLoading] = useState(true)
   const [stamp, setStamp]     = useState(null)
 
@@ -54,14 +57,20 @@ export default function ClientsPage() {
       (c.parent_node || "").toLowerCase().includes(filter.toLowerCase())
     )
     .sort((a, b) => {
-      if (sortKey === "traffic") return (b.m?.rx_bps || 0) - (a.m?.rx_bps || 0)
-      if (sortKey === "rtt")     return (b.m?.rtt_ms || 0) - (a.m?.rtt_ms || 0)
-      if (sortKey === "retx")    return (b.retxRate || 0) - (a.retxRate || 0)
-      if (sortKey === "usage")   return (b.usage || 0) - (a.usage || 0)
+      if (sortKey === "rx")    return (b.m?.rx_bps || 0) - (a.m?.rx_bps || 0)
+      if (sortKey === "tx")    return (b.m?.tx_bps || 0) - (a.m?.tx_bps || 0)
+      if (sortKey === "rtt")   return (b.m?.rtt_ms || 0) - (a.m?.rtt_ms || 0)
+      if (sortKey === "retx")  return (b.retxRate || 0) - (a.retxRate || 0)
+      if (sortKey === "usage") return (b.usage || 0) - (a.usage || 0)
       return a.circuit_name?.localeCompare(b.circuit_name)
     })
 
   const activos = rows.filter(r => r.active).length
+
+  // Paginación de 10 en 10
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const curPage    = Math.min(page, totalPages - 1)
+  const pageRows   = filtered.slice(curPage * PAGE_SIZE, curPage * PAGE_SIZE + PAGE_SIZE)
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -75,12 +84,12 @@ export default function ClientsPage() {
 
       <div className="flex gap-3 mb-4 flex-wrap">
         <input type="text" placeholder="Buscar nombre, IP, nodo..."
-          value={filter} onChange={e => setFilter(e.target.value)}
+          value={filter} onChange={e => { setFilter(e.target.value); setPage(0) }}
           className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-72 focus:outline-none focus:border-blue-500" />
-        <div className="flex gap-1 text-xs items-center">
-          <span className="text-gray-500 mr-1">Ordenar:</span>
-          {[["traffic","Tráfico"],["usage","% Plan"],["rtt","Latencia"],["retx","Retransmit"],["name","Nombre"]].map(([k,l]) => (
-            <button key={k} onClick={() => setSortKey(k)}
+        <div className="flex gap-1 text-xs items-center flex-wrap">
+          <span className="text-gray-500 mr-1">Ordenar (mayor→menor):</span>
+          {[["rx","Bajada"],["tx","Subida"],["rtt","RTT"],["retx","Retransmit"],["usage","% Plan"],["name","Nombre"]].map(([k,l]) => (
+            <button key={k} onClick={() => { setSortKey(k); setPage(0) }}
               className={`px-2 py-1 rounded ${sortKey===k ? "bg-blue-600" : "bg-gray-800 hover:bg-gray-700"}`}>{l}</button>
           ))}
         </div>
@@ -104,7 +113,7 @@ export default function ClientsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(c => (
+              {pageRows.map(c => (
                 <tr key={c.circuit_id} className="border-b border-gray-800 hover:bg-gray-800 transition-colors">
                   <td className="px-4 py-2.5">
                     <Link href={`/clients/${c.circuit_id}`} className="font-medium text-blue-300 hover:text-blue-200 hover:underline">
@@ -131,7 +140,28 @@ export default function ClientsPage() {
           </table>
         </div>
       )}
-      <p className="text-xs text-gray-600 mt-4 text-center">
+
+      {/* Controles de paginación */}
+      {!loading && filtered.length > 0 && (
+        <div className="flex items-center justify-between mt-4">
+          <span className="text-xs text-gray-500">
+            Mostrando {curPage * PAGE_SIZE + 1}–{Math.min(filtered.length, curPage * PAGE_SIZE + PAGE_SIZE)} de {filtered.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setPage(0)} disabled={curPage === 0}
+              className="px-2 py-1 rounded text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
+            <button onClick={() => setPage(curPage - 1)} disabled={curPage === 0}
+              className="px-3 py-1 rounded text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">‹ Anterior</button>
+            <span className="px-3 py-1 text-xs text-gray-400">Página {curPage + 1} / {totalPages}</span>
+            <button onClick={() => setPage(curPage + 1)} disabled={curPage >= totalPages - 1}
+              className="px-3 py-1 rounded text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">Siguiente ›</button>
+            <button onClick={() => setPage(totalPages - 1)} disabled={curPage >= totalPages - 1}
+              className="px-2 py-1 rounded text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-gray-600 mt-3 text-center">
         {stamp && `Actualizado ${stamp.toLocaleTimeString("es")} · `}auto-refresh 30s
       </p>
     </div>
