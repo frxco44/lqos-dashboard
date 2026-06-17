@@ -5,6 +5,8 @@ import TrafficChart from "../../components/TrafficChart"
 import RttHistogram from "../../components/RttHistogram"
 import ProtocolChart from "../../components/ProtocolChart"
 
+const PAGE_SIZE = 10
+
 export default function NodesPage() {
   const [range, setRange]       = useState("1h")
   const [nodes, setNodes]       = useState([])
@@ -12,6 +14,7 @@ export default function NodesPage() {
   const [detail, setDetail]     = useState(null)
   const [history, setHistory]   = useState([])
   const [filter, setFilter]     = useState("")
+  const [page, setPage]         = useState(0)
   const [loading, setLoading]   = useState(true)
 
   const loadLatest = useCallback(async () => {
@@ -68,6 +71,11 @@ export default function NodesPage() {
   const filtered = nodes.filter(n =>
     n.node_name.toLowerCase().includes(filter.toLowerCase())
   )
+
+  // Paginación de 10 en 10
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const curPage    = Math.min(page, totalPages - 1)
+  const pageRows   = filtered.slice(curPage * PAGE_SIZE, curPage * PAGE_SIZE + PAGE_SIZE)
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -163,7 +171,7 @@ export default function NodesPage() {
       {/* Filtro */}
       <div className="flex gap-3 mb-4">
         <input type="text" placeholder="Buscar nodo..." value={filter}
-          onChange={e => setFilter(e.target.value)}
+          onChange={e => { setFilter(e.target.value); setPage(0) }}
           className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-64 focus:outline-none focus:border-blue-500" />
         <span className="text-gray-500 text-sm self-center">{filtered.length} nodos</span>
       </div>
@@ -188,7 +196,7 @@ export default function NodesPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(node => (
+              {pageRows.map(node => (
                 <tr key={node.node_name}
                   onClick={() => setSelected(node.node_name)}
                   className={`border-b border-gray-800 cursor-pointer hover:bg-gray-800 transition-colors ${selected === node.node_name ? "bg-gray-800" : ""}`}>
@@ -212,7 +220,27 @@ export default function NodesPage() {
         </div>
       )}
 
-      <p className="text-xs text-gray-600 mt-4 text-center">
+      {/* Controles de paginación */}
+      {!loading && filtered.length > 0 && (
+        <div className="flex items-center justify-between mt-4">
+          <span className="text-xs text-gray-500">
+            Mostrando {curPage * PAGE_SIZE + 1}–{Math.min(filtered.length, curPage * PAGE_SIZE + PAGE_SIZE)} de {filtered.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setPage(0)} disabled={curPage === 0}
+              className="px-2 py-1 rounded text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">«</button>
+            <button onClick={() => setPage(curPage - 1)} disabled={curPage === 0}
+              className="px-3 py-1 rounded text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">‹ Anterior</button>
+            <span className="px-3 py-1 text-xs text-gray-400">Página {curPage + 1} / {totalPages}</span>
+            <button onClick={() => setPage(curPage + 1)} disabled={curPage >= totalPages - 1}
+              className="px-3 py-1 rounded text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">Siguiente ›</button>
+            <button onClick={() => setPage(totalPages - 1)} disabled={curPage >= totalPages - 1}
+              className="px-2 py-1 rounded text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">»</button>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-gray-600 mt-3 text-center">
         Click en un nodo para ver análisis completo · Actualización cada 30s
       </p>
     </div>
